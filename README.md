@@ -222,4 +222,4 @@ This project is licensed under the MIT License.
 
 ## Support
 
-If you have any questions or issues, please open an issue on GitHub or contact the maintainers.
+If you have any questions or issues, please open an issue on GitHub or contact me.
