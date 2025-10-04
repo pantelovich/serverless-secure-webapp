@@ -1,0 +1,84 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+terraform.tfvars.json
+
+# Lambda
+lambda/lambda_function.zip
+lambda/__pycache__/
+lambda/*.pyc
+lambda/*.pyo
+lambda/*.pyd
+lambda/.Python
+lambda/build/
+lambda/develop-eggs/
+lambda/dist/
+lambda/downloads/
+lambda/eggs/
+lambda/.eggs/
+lambda/lib/
+lambda/lib64/
+lambda/parts/
+lambda/sdist/
+lambda/var/
+lambda/wheels/
+lambda/*.egg-info/
+lambda/.installed.cfg
+lambda/*.egg
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# AWS
+.aws/
