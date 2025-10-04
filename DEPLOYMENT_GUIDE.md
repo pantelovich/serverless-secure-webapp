@@ -1,4 +1,4 @@
-# 🚀 Deployment Guide
+# Deployment Guide
 
 ## Quick Start
 
@@ -42,27 +42,27 @@ cd ..
 ```
 
 ### 3. Monitor Resources
-- **CloudWatch Logs**: Check `/aws/lambda/serverless-secure-webapp-api`
-- **WAF Metrics**: Monitor in CloudWatch under "AWS/WAFV2"
-- **RDS Metrics**: Check database performance in RDS console
+- CloudWatch Logs: Check `/aws/lambda/serverless-secure-webapp-api`
+- WAF Metrics: Monitor in CloudWatch under "AWS/WAFV2"
+- RDS Metrics: Check database performance in RDS console
 
 ## Security Features Implemented
 
-✅ **VPC Isolation**: Private subnets for RDS, public subnets for API Gateway  
-✅ **WAF Protection**: OWASP Top 10 rules against SQL injection, XSS, etc.  
-✅ **Secrets Manager**: Database credentials stored securely  
-✅ **Least Privilege IAM**: Lambda role only has necessary permissions  
-✅ **Encryption**: RDS encrypted at rest with AWS KMS  
-✅ **Network Security**: Security groups restrict access  
-✅ **Logging**: Comprehensive CloudWatch logging  
+- VPC Isolation: Private subnets for RDS, public subnets for API Gateway
+- WAF Protection: OWASP Top 10 rules against SQL injection, XSS, etc.
+- Secrets Manager: Database credentials stored securely
+- Least Privilege IAM: Lambda role only has necessary permissions
+- Encryption: RDS encrypted at rest with AWS KMS
+- Network Security: Security groups restrict access
+- Logging: Comprehensive CloudWatch logging
 
 ## Cost Optimization
 
-- **RDS**: Uses `db.t3.micro` (free tier eligible)
-- **Lambda**: Pay per request (very low cost)
-- **API Gateway**: Pay per request
-- **WAF**: Pay per request (first 1M requests free)
-- **Secrets Manager**: $0.40 per secret per month
+- RDS: Uses `db.t3.micro` (free tier eligible)
+- Lambda: Pay per request (very low cost)
+- API Gateway: Pay per request
+- WAF: Pay per request (first 1M requests free)
+- Secrets Manager: $0.40 per secret per month
 
 ## Troubleshooting
 
@@ -107,17 +107,13 @@ cd infra
 terraform destroy
 ```
 
-**⚠️ Warning**: This will permanently delete all resources including the database.
+**Warning**: This will permanently delete all resources including the database.
 
 ## Next Steps
 
-1. **Add Authentication**: Integrate AWS Cognito
-2. **Custom Domain**: Add Route 53 and SSL certificate
-3. **CI/CD Pipeline**: Set up GitHub Actions
-4. **Monitoring**: Add CloudWatch alarms
-5. **API Documentation**: Add OpenAPI/Swagger
-6. **Multi-Environment**: Add dev/staging/prod environments
-
----
-
-**Happy Deploying! 🎉**
+1. Add Authentication: Integrate AWS Cognito
+2. Custom Domain: Add Route 53 and SSL certificate
+3. CI/CD Pipeline: Set up GitHub Actions
+4. Monitoring: Add CloudWatch alarms
+5. API Documentation: Add OpenAPI/Swagger
+6. Multi-Environment: Add dev/staging/prod environments
