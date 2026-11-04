@@ -8,4 +8,6 @@ port separation, reserved environment variables and explicit API stage creation.
 No AWS deployment is authorised as part of this update.
 The original working tree is dirty. Its edits are preserved separately.
 CI success must not be presented as proof of a working live cloud environment.
-Local checks pass. GitHub validation and a review PR are next.
+Local checks and all GitHub CI jobs pass. Draft review PR:
+https://github.com/Pantelovich/serverless-secure-webapp/pull/1.
+Default-branch merge and live deployment remain separate steps.

@@ -14,6 +14,10 @@ Local results:
 - The Linux-compatible ZIP builds, its checksum matches and the handler imports
   from the ZIP without development site packages.
 
-GitHub Actions validation of this branch is pending. AWS deployment, live WAF
+GitHub Actions passed all four jobs on
+[run 41910678271](https://github.com/Pantelovich/serverless-secure-webapp/actions/runs/41910678271),
+including dependency and secret checks, Terraform validation and artifact delivery.
+Cross-platform provider hashes were added after CI caught a Mac-only lockfile.
+AWS deployment, live WAF
 behaviour, database TLS trust and rollback have not been verified in this update.
 No AWS resources were created or changed.
