@@ -1,150 +1,131 @@
-# Serverless Secure Web App (AWS + Terraform)
+# Serverless API and CI Pipeline
 
-A production-style serverless API on AWS — Lambda and RDS behind API Gateway, with WAF, least-privilege IAM, and Secrets Manager integrated from the start, not retrofitted.
+A small AWS Lambda API with Terraform templates and a credential-free CI pipeline.
+The API reads the current time from MySQL. The pipeline checks code and dependencies,
+validates Terraform and builds a Lambda ZIP only after those checks pass.
 
----
+## Run the checks
 
-## Architecture
+Use Python 3.12 and Terraform 1.11.2. No AWS credentials are needed for these checks.
 
-- **API Gateway** — public HTTPS endpoint, protected by WAF
-- **Lambda** — backend compute with minimal IAM role
-- **RDS (MySQL/Postgres)** — private subnet, encrypted, not publicly accessible
-- **Secrets Manager** — handles DB credentials, nothing hardcoded
-- **CloudWatch** — centralised logging and metrics
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m pip install --require-hashes -r lambda/requirements.txt
+ruff check .
+ruff format --check .
+pytest
+terraform -chdir=infra init -backend=false
+terraform -chdir=infra validate
+```
+
+## Pipeline
 
 ```mermaid
-flowchart TD
-    Client[Client] --> APIGW[API Gateway]
-    APIGW --> WAF[Web Application Firewall]
-    WAF --> Lambda[Lambda Function]
-    Lambda --> RDS[(RDS Database)]
-    Lambda --> Secrets[Secrets Manager]
-    Lambda --> CloudWatch[CloudWatch Logs]
-    RDS --> CloudWatch
-    APIGW --> CloudWatch
+flowchart LR
+    A[Push or pull request] --> B[Python lint, format and tests]
+    A --> C[Terraform format and validation]
+    A --> D[Secret scan]
+    B --> E[Locked dependency audit]
+    E --> F[Build Lambda ZIP]
+    C --> F
+    D --> F
+    F --> G[Verify checksum and upload artifact]
 ```
 
----
+GitHub Actions uses read-only repository permissions and actions pinned to verified
+commit SHAs. A failed test, dependency audit or secret scan blocks the build.
+Runtime dependencies are hash-locked separately from development tools.
 
-## Security Design
+The pipeline does not apply Terraform or access an AWS account. Deployment remains
+a deliberate manual step. This is CI and artifact delivery, not automatic cloud
+rollout or a claim of zero downtime.
 
-- Lambda IAM role scoped to `secretsmanager:GetSecretValue` and `rds-db:connect` only
-- RDS in private subnet, encrypted at rest with AWS KMS
-- API Gateway protected by AWS WAF with OWASP managed ruleset
-- All credentials stored in Secrets Manager — never in environment variables or code
-- VPC isolation with public/private subnet separation
-- CloudWatch logging enabled across API Gateway and Lambda
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- AWS account with CLI access
-- Terraform >= 1.5
-- Python 3.9+
-
-### Deploy
+## Build the artifact
 
 ```bash
-git clone https://github.com/pantelovich/serverless-secure-webapp.git
-cd serverless-secure-webapp
-chmod +x deploy.sh
-./deploy.sh
+python scripts/build_lambda.py
 ```
 
-### Test
+The builder installs the locked runtime wheels for Linux x86_64 and Python 3.12
+into temporary staging. It copies only the handler from the source folder, then
+writes `build/lambda.zip` and `build/lambda.zip.sha256`. Tests, caches and environment
+files are excluded. CI keeps its artifact for seven days.
+
+## What the tests cover
+
+- A successful query and timezone-aware response.
+- Secret access failure, database failure and an empty query result.
+- Closing the database connection after both success and query failure.
+- Keeping internal exception details out of responses and logs.
+- The smoke command against a real local HTTP server, including HTTP 500 and
+  invalid HTTP 200 responses. Failure must return a nonzero exit status.
+- ZIP contents and its SHA256 companion file.
+
+Cloud services are mocked in unit tests. The local HTTP server uses fictional
+responses. These checks do not prove a live RDS, WAF or API Gateway deployment.
+
+## Infrastructure template
+
+```mermaid
+flowchart LR
+    U[Client] --> W[Regional WAF checks]
+    W --> A[API Gateway REST API]
+    A --> L[Lambda in private subnets]
+    L --> R[Private MySQL RDS]
+    L --> V[Secrets Manager interface endpoint]
+    V --> S[Secrets Manager]
+    L --> C[CloudWatch Lambda logs]
+```
+
+The template includes a private MySQL database and a Secrets Manager interface
+endpoint so the private Lambda has a route to its credentials without NAT.
+The secret uses separate host and port values. Lambda uses the runtime-provided
+AWS_REGION variable. API stage creation is explicit.
+
+API access logging is off by default. Enable it only after configuring the
+regional API Gateway CloudWatch role. The template does not change that shared
+account setting. [Deployment guide](DEPLOYMENT_GUIDE.md).
+
+## Support demonstration
+
+Read the [incident cases](docs/support-cases.md) and
+[interview guide](docs/interview-guide.md). Explain the symptom, failed check,
+next investigation and verification. Keep fictional incidents separate from work
+experience.
+
+To test an authorised deployed API:
 
 ```bash
-curl https://<api_gateway_url>/prod/time
+./test-api.sh https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/prod
 ```
 
-Expected response:
+This performs a bounded GET check. It does not send attack payloads or load tests.
 
-```json
-{
-  "message": "Successfully retrieved time from database",
-  "time": "2025-01-03 12:34:56",
-  "timestamp": "2025-01-03T12:34:56.789Z"
-}
-```
+## Deployment boundary
 
-### Manual deployment
+The templates and offline checks are maintained here. The revised infrastructure
+has not been deployed as part of this update. Before a live lab deployment,
+review costs, account permissions, database TLS trust and Terraform state storage.
+This public time endpoint has no application authentication.
 
-```bash
-cd infra
-terraform init
-terraform plan
-terraform apply
-```
+Terraform state can contain generated credentials. Keep it in an approved,
+encrypted and access-controlled state backend. Never commit it or a plan file.
 
----
+## Files
 
-## Project Structure
+| Path | Purpose |
+| --- | --- |
+| `lambda/` | Handler, baseline tests and runtime dependency lock |
+| `scripts/` | Build and endpoint verification |
+| `tests/` | Failure, HTTP and artifact regression tests |
+| `infra/` | Terraform and provider lock |
+| `.github/workflows/ci.yml` | Credential-free checks and artifact delivery |
+| `docs/` | Design decision, support cases and validation evidence |
 
-```
-serverless-secure-webapp/
-├── infra/
-│   ├── main.tf
-│   ├── variables.tf
-│   └── outputs.tf
-├── lambda/
-│   ├── app.py
-│   └── requirements.txt
-├── deploy.sh
-└── README.md
-```
+## Next steps
 
----
-
-## Monitoring
-
-- Lambda logs: `/aws/lambda/serverless-secure-webapp-api`
-- API Gateway logs: `/aws/apigateway/serverless-secure-webapp-api`
-- WAF metrics: CloudWatch under `AWS/WAFV2`
-
-Useful commands:
-
-```bash
-# Tail Lambda logs
-aws logs tail /aws/lambda/serverless-secure-webapp-api --follow
-
-# Tail API Gateway logs
-aws logs tail /aws/apigateway/serverless-secure-webapp-api --follow
-```
-
----
-
-## Troubleshooting
-
-| Issue | Likely cause |
-|-------|-------------|
-| Lambda timeout | VPC config or security group misconfiguration |
-| Database connection failed | RDS security group not allowing Lambda ingress |
-| Secrets Manager access denied | IAM role missing `secretsmanager:GetSecretValue` |
-| WAF blocking legitimate requests | Check WAF logs in CloudWatch |
-
----
-
-## Next Steps
-
-- CI/CD pipeline with GitHub Actions
-- Multi-environment deployments (dev/staging/prod)
-- API authentication via Cognito
-- Custom domain with SSL certificate
-- OpenAPI/Swagger documentation
-
----
-
-## Cleanup
-
-```bash
-cd infra && terraform destroy
-```
-
----
-
-## Licence
-
-MIT — see [LICENSE](LICENSE) for details.
+Verify the revised template in an authorised disposable AWS lab, add a database
+TLS trust bundle and demonstrate recovery with a previous approved artifact.
+These are future tasks, not completed deployment claims.

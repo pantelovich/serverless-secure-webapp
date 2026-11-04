@@ -4,7 +4,6 @@
 *.tfplan
 *.tfplan.*
 .terraform/
-.terraform.lock.hcl
 terraform.tfvars
 terraform.tfvars.json
 
@@ -32,6 +31,9 @@ lambda/.installed.cfg
 lambda/*.egg
 
 # Python
+.venv/
+.pytest_cache/
+.ruff_cache/
 __pycache__/
 *.py[cod]
 *$py.class
