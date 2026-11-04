@@ -1,16 +1,23 @@
 # Provider configuration
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.11, < 2.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
 }
 
 provider "aws" {
   region = var.aws_region
+  default_tags {
+    tags = merge(var.tags, { Project = var.project_name, Environment = var.environment })
+  }
 }
 
 # Data sources
@@ -154,6 +161,39 @@ resource "aws_security_group" "rds" {
   }
 }
 
+# Private Lambda access to Secrets Manager without a NAT Gateway.
+resource "aws_security_group" "secrets_endpoint" {
+  name_prefix = "${var.project_name}-secrets-"
+  description = "Allow HTTPS from Lambda to the Secrets Manager endpoint"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.lambda.id]
+  }
+}
+
+resource "aws_vpc_endpoint" "secrets" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.secretsmanager"
+  vpc_endpoint_type   = "Interface"
+  private_dns_enabled = true
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.secrets_endpoint.id]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "secretsmanager:GetSecretValue"
+      Resource  = aws_secretsmanager_secret.db_credentials.arn
+    }]
+  })
+}
+
 # DB Subnet Group
 resource "aws_db_subnet_group" "main" {
   name       = "${var.project_name}-db-subnet-group"
@@ -176,6 +216,7 @@ resource "aws_db_instance" "main" {
   max_allocated_storage = var.db_max_allocated_storage
   storage_type          = "gp3"
   storage_encrypted     = true
+  publicly_accessible   = false
 
   db_name  = var.db_name
   username = var.db_username
@@ -185,15 +226,15 @@ resource "aws_db_instance" "main" {
   db_subnet_group_name   = aws_db_subnet_group.main.name
 
   backup_retention_period = var.db_backup_retention_period
-  backup_window          = var.db_backup_window
-  maintenance_window     = var.db_maintenance_window
+  backup_window           = var.db_backup_window
+  maintenance_window      = var.db_maintenance_window
 
   skip_final_snapshot = var.db_skip_final_snapshot
   deletion_protection = var.db_deletion_protection
 
   performance_insights_enabled = true
-  monitoring_interval         = 60
-  monitoring_role_arn         = aws_iam_role.rds_enhanced_monitoring.arn
+  monitoring_interval          = 60
+  monitoring_role_arn          = aws_iam_role.rds_enhanced_monitoring.arn
 
   tags = {
     Name = "${var.project_name}-rds"
@@ -239,7 +280,7 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
   secret_string = jsonencode({
     username = var.db_username
     password = random_password.db_password.result
-    host     = aws_db_instance.main.endpoint
+    host     = aws_db_instance.main.address
     port     = var.db_port
     dbname   = var.db_name
   })
@@ -285,13 +326,6 @@ resource "aws_iam_policy" "lambda" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = aws_secretsmanager_secret.db_credentials.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "rds-db:connect"
-        ]
-        Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.main.resource_id}/${var.db_username}"
       }
     ]
   })
@@ -309,13 +343,13 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc" {
 
 # Lambda Function
 resource "aws_lambda_function" "main" {
-  filename         = "../lambda/lambda_function.zip"
+  filename         = var.lambda_zip_path
   function_name    = "${var.project_name}-api"
-  role            = aws_iam_role.lambda.arn
-  handler         = "app.handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = 30
+  role             = aws_iam_role.lambda.arn
+  handler          = "app.handler"
+  source_code_hash = fileexists(var.lambda_zip_path) ? filebase64sha256(var.lambda_zip_path) : null
+  runtime          = "python3.12"
+  timeout          = 30
 
   vpc_config {
     subnet_ids         = aws_subnet.private[*].id
@@ -325,14 +359,21 @@ resource "aws_lambda_function" "main" {
   environment {
     variables = {
       DB_SECRET = aws_secretsmanager_secret.db_credentials.name
-      AWS_REGION = var.aws_region
     }
   }
 
   depends_on = [
     aws_iam_role_policy_attachment.lambda_vpc,
-    aws_cloudwatch_log_group.lambda
+    aws_cloudwatch_log_group.lambda,
+    aws_vpc_endpoint.secrets
   ]
+
+  lifecycle {
+    precondition {
+      condition     = fileexists(var.lambda_zip_path)
+      error_message = "Build the Lambda artifact with python scripts/build_lambda.py before planning."
+    }
+  }
 
   tags = {
     Name = "${var.project_name}-lambda"
@@ -385,8 +426,8 @@ resource "aws_api_gateway_integration" "lambda" {
   http_method = aws_api_gateway_method.time_get.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.main.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.main.invoke_arn
 }
 
 # Lambda Permission for API Gateway
@@ -405,7 +446,13 @@ resource "aws_api_gateway_deployment" "main" {
   ]
 
   rest_api_id = aws_api_gateway_rest_api.main.id
-  stage_name  = "prod"
+  triggers = {
+    api_configuration = sha1(jsonencode([
+      aws_api_gateway_resource.time.path,
+      aws_api_gateway_method.time_get.http_method,
+      aws_api_gateway_integration.lambda.uri
+    ]))
+  }
 
   lifecycle {
     create_before_destroy = true
@@ -511,20 +558,23 @@ resource "aws_api_gateway_stage" "main" {
   rest_api_id   = aws_api_gateway_rest_api.main.id
   stage_name    = "prod"
 
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_gateway.arn
-    format = jsonencode({
-      requestId      = "$context.requestId"
-      ip             = "$context.identity.sourceIp"
-      caller         = "$context.identity.caller"
-      user           = "$context.identity.user"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
-      status         = "$context.status"
-      protocol       = "$context.protocol"
-      responseLength = "$context.responseLength"
-    })
+  dynamic "access_log_settings" {
+    for_each = var.enable_api_access_logs ? [1] : []
+    content {
+      destination_arn = aws_cloudwatch_log_group.api_gateway.arn
+      format = jsonencode({
+        requestId      = "$context.requestId"
+        ip             = "$context.identity.sourceIp"
+        caller         = "$context.identity.caller"
+        user           = "$context.identity.user"
+        requestTime    = "$context.requestTime"
+        httpMethod     = "$context.httpMethod"
+        resourcePath   = "$context.resourcePath"
+        status         = "$context.status"
+        protocol       = "$context.protocol"
+        responseLength = "$context.responseLength"
+      })
+    }
   }
 
   tags = {
@@ -546,23 +596,4 @@ resource "aws_cloudwatch_log_group" "api_gateway" {
 resource "aws_cloudwatch_log_stream" "api_gateway" {
   name           = "prod"
   log_group_name = aws_cloudwatch_log_group.api_gateway.name
-}
-
-# Data source for Lambda zip file
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_dir  = "../lambda"
-  output_path = "../lambda/lambda_function.zip"
-  depends_on  = [null_resource.lambda_dependencies]
-}
-
-# Install Python dependencies
-resource "null_resource" "lambda_dependencies" {
-  provisioner "local-exec" {
-    command = "cd ../lambda && pip install -r requirements.txt -t ."
-  }
-
-  triggers = {
-    requirements = filemd5("../lambda/requirements.txt")
-  }
 }

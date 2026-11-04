@@ -36,9 +36,21 @@ variable "db_engine" {
   type        = string
   default     = "mysql"
   validation {
-    condition     = contains(["mysql", "postgres"], var.db_engine)
-    error_message = "Database engine must be either 'mysql' or 'postgres'."
+    condition     = var.db_engine == "mysql"
+    error_message = "The application uses PyMySQL and supports MySQL only."
   }
+}
+
+variable "lambda_zip_path" {
+  description = "Path relative to the infra directory of the prebuilt Lambda ZIP"
+  type        = string
+  default     = "../build/lambda.zip"
+}
+
+variable "enable_api_access_logs" {
+  description = "Enable only after the regional API Gateway CloudWatch role is configured"
+  type        = bool
+  default     = false
 }
 
 variable "db_engine_version" {
